@@ -51,7 +51,12 @@ spec:dom; type:dfn; text:append
     "status": "Living Standard",
     "publisher": "WHATWG",
     "repository": "https://github.com/whatwg/html",
-  "id": "HTML"
+    "id": "HTML"
+  },
+  "TrustedTypes": {
+    "href": "https://w3c.github.io/webappsec-trusted-types/dist/spec/",
+    "title": "Trusted Types",
+    "repository": "https://github.com/webappsec-trusted-types/"
   }
 }
 </pre>
@@ -132,6 +137,8 @@ handle additional, application-specific use cases.
     constructor(optional SanitizerConfig config = {});
     DocumentFragment sanitize(SanitizerInput input);
     DOMString sanitizeToString(SanitizerInput input);
+    TrustedHTML sanitizeToTrustedHTML(SanitizerInput input);
+    StringSanitizerCallback bound();
   };
 </pre>
 
@@ -139,12 +146,16 @@ handle additional, application-specific use cases.
   It retains a copy of |config| as its [=configuration=] object.
 * The `sanitize` method runs the [=sanitize=] algorithm on |input|,
 * The `sanitizeToString` method runs the [=sanitizeToString=] algorithm on |input|.
+* The `sanitizeToTrustedHTML` method runs the [=sanitizeToTrustedHTML=]
+  algorithm on |input|. Note that this method will only exist if the browser
+  supports [[TrustedTypes]].
 
 Example:
 ```js
   // Replace an element's content from unsanitized input:
   element.replaceChildren(new Sanitizer().sanitize(userControlledInput));
 ```
+
 
 ## Input Types {#inputs}
 
@@ -263,6 +274,25 @@ Examples for attributes and attribute match lists:
   new Sanitizer({blockAttributes: {"id": ["*"]}}).sanitizeToString(sample);
 ```
 
+## Other Functions {#other}
+
+### Bound String Sanitizer {#stringcallback}
+
+The `bound` function returns a callable that is bound
+to the sanitizer instance and calls `sanitizeToString` on it.
+
+<pre class="idl">
+  callback StringSanitizerCallback = DOMString ( SanitizerInput input );
+</pre>
+
+```js
+  // Polyfill for Sanitizer.bound.
+  function bound() {
+    const sanitizer = this;
+    return sanitizer.sanitizeToString.bind(sanitizer);
+  }
+```
+
 ## Algorithms {#algorithms}
 
 To <dfn lt="sanitize document fragment">sanitize a document fragment</dfn> named |fragment| using |sanitizer| run these steps:
@@ -378,6 +408,12 @@ To <dfn>sanitizeToString</dfn> a given |input|, run these steps:
 3. run the steps of the [=HTML Fragment Serialization Algorithm=] with
      the fragment root of step 1 as the |node|, and return the result string.
 
+To <dfn>sanitizeToTrustedHTML</dfn> a given |input|, run these steps:
+
+1. run the [=sanitizeToString=] algorithm on |input|.
+2. create a [=TrustedHTML=] instance with the internal `[[Data]]` slot
+   set to the result of the previous step.
+3. return the result of the previous step.i
 
 ## Default Configuration {#defaults}
 
@@ -484,3 +520,72 @@ Acknowledgements {#ack}
 
 Cure53's [[DOMPURIFY]] is a clear inspiration for the API this document
 describes, as is Internet Explorer's {{window.toStaticHTML()}}.
+
+
+
+Appendix A: Interactions between Sanitizer And Trusted Types {#tt}
+======================================================
+
+<em>This section is not normative.</em>
+
+Note: Arguably, this section does not belong in this spec at all, and should
+probably be moved into the [[TrustedTypes]] proposal.
+
+
+[[TrustedTypes]] can interact in helpful ways with the Sanitizer API. How to
+best do so will likely depend on the intended use of both. Because the Sanitzer
+API will not allow any script-ish content by default, and because this is not
+over-ridable by the user, a useful and safe default behaviour would be to let
+any Sanitizer instance produce `TrustedHTML` instances directly by utilizing
+the [=sanitizeToTrustedHTML=] method. However, this might not be desireable for
+all sites, so a new keyword `'sanitizer'` for the `trusted-types` CSP
+directive controls this behaviour.
+
+- If Trusted Types are enforced,
+- and if the `'sanitzer'` keyword is present in in the
+    Content Security Policy `trusted-types` directive,
+  - then calling the [=sanitize=] or [=sanitizeToTrustedHTML=] will work
+    as described above.
+  - otherwise calling `Sanitzer.sanitize` or `Sanitizer.sanitzeToTrustedHTML`
+    is considered a Trusted Type violation. In this case, the bevahiour
+    is modified to throw a [=TypeError=], and to dispatch a violation report.
+
+Essentially, allowing `'sanitizer'` or not allows a Trusted Type deployment
+to pick between allowing any XSS-safe contentor explicitly blessing one or
+more sanitizer configurations by wrapping them in Trusted Type polices.
+
+Issue: Formalize the description.
+
+
+Examples:
+```
+  // Trusted Types are enforced, sanitze or sanitizeToTrustedTypes will succeed.
+  require-trusted-types-for 'script'; trusted-types 'sanitizer'
+
+  // Trusted Types are enforced, sanitze or sanitizeToTrustedTypes will throw.
+  require-trusted-types-for 'script'; trusted-types 'none'
+```
+
+A convenient use - available in all cases - is to call a Sanitizer from
+within a policy. For example:
+
+```js
+const my_config = { ... };
+const sanitizing_policy = trustedTypes.createPolicy("apolicyname", {
+  createHTML: new Sanitizer(my_config).bound() });
+
+const untrusted_input = "....";
+some_node.innerhtml = sanitizing_policy.createHTML(untrusted_input);
+
+```
+
+If a sanitizing policy is installed as the default policy, this would
+auto-sanitize any HTML assignments.
+
+```js
+trustedTypes.createPolicy("default", { createHTML: new Sanitizer().bound() });
+
+const untrusted_input = "<em>Bobby <script>console.log(1);</script> Tables</em>";
+some_node.innerHTML = untrusted_input;  // Assigns "<em>Bobby  Tables</em>".
+```
+
