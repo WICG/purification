@@ -529,3 +529,34 @@ Acknowledgements {#ack}
 
 Cure53's [[DOMPURIFY]] is a clear inspiration for the API this document
 describes, as is Internet Explorer's {{window.toStaticHTML()}}.
+
+
+# Appendix A: Integration with Trusted Types {#trustedtypes}
+
+Issue(WICG/sanitizer-api#20): The best way to integrate Trusted Types is still under discussion.
+
+[Trusted Types](https://w3c.github.io/webappsec-trusted-types/dist/spec/) is
+a proposed feature to allow locking down the DOM to prevent cross-site
+scripting attacks. Trusted Types is complementary to the mechanisms proposed
+here. User Agents that support both, this Sanitizer API and Trusted Types,
+benefit from integration between these features.
+
+To allow easy combination of Sanitizer and Trusted Types, the `Sanitizer`
+interface gets a new method to create a Trusted Type directly:
+
+<pre>
+  // In interface Sanitizer:
+  <ins>TrustedHTML sanitizeToTrustedHTML(SanitizerInput input);</ins>
+</pre>
+
+To `sanitizeToTrustedHTML` a given |input|, run these steps:
+
+1. Run the [=sanitizeToString=] algorithm on |input|.
+2. Return a new `TrustedHTML` instance, with its `[[Data]]` internal slot value
+  set to the result of the previous step.
+
+Issue(WICG/sanitizer-api#20): An additional proposal is to allow a
+  TrustedTypePolicy (or TrustedTypePolicy.createHTML) to be created directly
+  from a SanitizerConfig, thus making the creation of a Sanitizer implicit.
+  It's unclear to what extend this would be helpful.
+
